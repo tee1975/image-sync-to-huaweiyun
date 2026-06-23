@@ -1,0 +1,146 @@
+name: 智能同步镜像到华为云 SWR
+
+on:
+  # 1. 定时触发：每 3 天的 UTC 0:00 运行（即北京时间上午 8:00）
+  schedule:
+    - cron: '0 0 */3 * *'
+  
+  # 2. 文件变更触发：只要 images.txt 有改动，立即运行
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'images.txt'
+  
+  # 3. 手动触发（方便测试）
+  workflow_dispatch:
+
+jobs:
+  sync-job:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 第一步：拉取你的代码仓库（获取 images.txt）
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # 第二步：用长期密钥登录华为云 SWR
+      - name: 登录华为云 SWR
+        run: |
+          echo "开始执行登录命令..."
+          ${{ secrets.HUAWEI_SWR_LOGIN_CMD }}
+          echo "登录成功"
+
+      # 第三步：核心同步逻辑（包含智能判断 + 点号命名规则）
+      - name: 读取列表并同步（仅有更新时才拉取和推送）
+        env:
+          REGISTRY: ${{ secrets.HUAWEI_SWR_REGISTRY }}
+          NAMESPACE: ${{ secrets.HUAWEI_SWR_NAMESPACE }}
+        run: |
+          # 初始化统计变量
+          total=0
+          updated=0
+          skipped=0
+          failed=0
+
+          # 逐行读取 images.txt
+          while IFS= read -r source_image || [ -n "$source_image" ]; do
+            # 跳过空行和以 # 开头的注释行
+            [[ -z "$source_image" || "$source_image" =~ ^# ]] && continue
+
+            echo "=============================================="
+            total=$((total + 1))
+
+            # --- 1. 解析镜像名和 Tag ---
+            # 提取仓库名（去掉 :tag 部分），例如 xhofe/alist
+            repo_part="${source_image%:*}"
+            # 提取 tag，如果没有则默认为 latest
+            tag="${source_image##*:}"
+            if [ -z "$tag" ] || [ "$tag" == "$repo_part" ]; then
+              tag="latest"
+              repo_part="$source_image"  # 针对没有写 tag 的情况
+            fi
+
+            # --- 2. ★★★ 核心命名规则：将 / 替换为 . ★★★ ---
+            # 例如 xhofe/alist -> xhofe.alist，library/nginx -> library.nginx
+            safe_repo=$(echo "$repo_part" | tr '/' '.')
+
+            # --- 3. 组装最终华为云目标地址 ---
+            target_image="${REGISTRY}/${NAMESPACE}/${safe_repo}:${tag}"
+
+            echo "📦 源镜像: $source_image"
+            echo "🎯 目标镜像: $target_image"
+
+            # --- 4. 获取源镜像的最新摘要（不拉取镜像体，只查清单） ---
+            # 使用 buildx 工具获取多架构清单摘要，稳定且通用
+            SOURCE_DIGEST=$(docker buildx imagetools inspect "$source_image" --format '{{.Manifest.Digest}}' 2>/dev/null || echo "")
+
+            if [ -z "$SOURCE_DIGEST" ]; then
+              echo "⚠️  无法获取源镜像摘要（可能是镜像不存在或网络问题），尝试直接拉取..."
+              if docker pull "$source_image"; then
+                # 拉取成功则直接进入推送环节（下面的条件会命中）
+                NEED_PUSH="true"
+              else
+                echo "❌ 拉取失败，跳过此镜像"
+                failed=$((failed + 1))
+                continue
+              fi
+            else
+              echo "🔍 源镜像摘要: ${SOURCE_DIGEST:0:19}..."
+
+              # --- 5. 检查华为云上是否已存在该镜像 ---
+              # 静默拉取（只拉清单不拉层），看本地有没有缓存
+              docker pull "$target_image" >/dev/null 2>&1 || true
+              
+              # 获取华为云镜像的本地 ID（即 Digest）
+              TARGET_DIGEST=$(docker inspect "$target_image" --format='{{.Id}}' 2>/dev/null | cut -d':' -f2 || echo "")
+
+              # --- 6. 比较摘要，决定是否需要更新 ---
+              if [ -n "$TARGET_DIGEST" ] && [ "$SOURCE_DIGEST" == "$TARGET_DIGEST" ]; then
+                echo "✅ 镜像完全一致（摘要相同），跳过拉取和推送"
+                skipped=$((skipped + 1))
+                continue
+              else
+                echo "🔄 检测到更新（摘要不一致或云端不存在），开始拉取..."
+                NEED_PUSH="true"
+              fi
+            fi
+
+            # --- 7. 执行拉取、打标签、推送 ---
+            if [ "$NEED_PUSH" == "true" ] || [ -n "$NEED_PUSH" ]; then
+              # 拉取（如果之前没拉取过）
+              if ! docker pull "$source_image"; then
+                echo "❌ 拉取失败"
+                failed=$((failed + 1))
+                continue
+              fi
+
+              # 打标签
+              docker tag "$source_image" "$target_image"
+              
+              # 推送到华为云
+              echo "🚀 推送中..."
+              if docker push "$target_image"; then
+                echo "✅ 推送成功"
+                updated=$((updated + 1))
+              else
+                echo "❌ 推送失败"
+                failed=$((failed + 1))
+              fi
+            fi
+
+            unset NEED_PUSH
+
+          done < images.txt
+
+          # --- 8. 输出最终统计 ---
+          echo "=============================================="
+          echo "📊 本次运行统计："
+          echo "   总计处理: $total 个镜像"
+          echo "   ✅ 更新成功: $updated 个"
+          echo "   ⏭️  跳过未变: $skipped 个"
+          echo "   ❌ 失败: $failed 个"
+
+      # 第四步：清理磁盘空间（避免 GitHub Runner 磁盘爆满）
+      - name: 清理 Docker 缓存
+        if: always()
+        run: docker system prune -f
