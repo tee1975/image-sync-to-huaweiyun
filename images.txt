@@ -119,3 +119,9 @@ registry.cn-guangzhou.aliyuncs.com/fnapp/trim-chromium:latest
 jxxghp/moviepilot-v2:latest
 jlesage/mkvtoolnix
 ponphil/litepan:latest
+walkingd/tgto123:latest
+docker.1ms.run/fs185085781/webos
+xia1307/cloud189-auto-save
+cp0204/quark-auto-save:latest
+akimio/autofilm
+dr34m/tao-sync:latest
