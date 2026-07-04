@@ -125,3 +125,17 @@ xia1307/cloud189-auto-save
 cp0204/quark-auto-save:latest
 akimio/autofilm
 dr34m/tao-sync:latest
+nyanmisaka/jellyfin
+searxng/searxng
+yuwancumian2009/tunescout-v2
+mvdctop/mdc-gui-lite
+mtphotos/mt-photos-pg
+minzgo/music-toolbox
+minzgo/music-scraper
+lscr.io/linuxserver/bazarr
+jxxghp/moviepilot:latest
+alexta69/metube
+ghcr.io/bitmagnet-io/bitmagnet
+jlesage/makemkv
+steefdebruijn/docker-roonserver
+yidadaa/chatgpt-next-web
