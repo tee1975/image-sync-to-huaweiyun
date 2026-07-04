@@ -1,4 +1,7 @@
 name: Keep Alive
+# 新增权限配置
+permissions:
+  contents: write
 on:
   schedule:
     - cron: '0 0 1 * *'
@@ -8,7 +11,6 @@ jobs:
   empty-commit:
     runs-on: ubuntu-latest
     steps:
-      # 从 @v4 → @v5，v5 使用 Node.js 22，不再触发弃用警告
       - uses: actions/checkout@v5
       - name: Create empty commit
         run: |
