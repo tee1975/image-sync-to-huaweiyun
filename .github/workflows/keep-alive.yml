@@ -1,0 +1,18 @@
+name: Keep Alive
+on:
+  schedule:
+    - cron: '0 0 1 * *'
+  workflow_dispatch:
+
+jobs:
+  empty-commit:
+    runs-on: ubuntu-latest
+    steps:
+      # 从 @v4 → @v5，v5 使用 Node.js 22，不再触发弃用警告
+      - uses: actions/checkout@v5
+      - name: Create empty commit
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git commit --allow-empty -m "chore: keep alive"
+          git push
