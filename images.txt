@@ -139,3 +139,4 @@ ghcr.io/bitmagnet-io/bitmagnet
 jlesage/makemkv
 steefdebruijn/docker-roonserver
 yidadaa/chatgpt-next-web
+ponphil/litepan:beta
